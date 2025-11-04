@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+title: "HSI paprika (FX10/FX17) — MATLAB code and materials (2023–2025)"
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Alonso Sánchez"
+    given-names: "Jesús"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"  # (opcional)
+# Añade coautores si procede:
+#  - family-names: "Apellido"
+#    given-names: "Nombre"
+version: "v1.0.0-rc1"
+date-released: "2025-11-04"
+repository-code: "https://github.com/<OWNER>/<REPO>"
+doi: ""   # lo rellenaremos tras Zenodo
