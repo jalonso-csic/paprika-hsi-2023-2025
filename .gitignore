@@ -1,0 +1,21 @@
+# --- MATLAB / temporales ---
+*.asv
+*.m~
+*.mdl.r*
+*.slxc
+*.mex*
+*.autosave
+*.tmp
+~$*
+
+# --- SO / editores ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# --- Carpetas locales opcionales ---
+/.matlab/
+data-raw/
+data-private/
