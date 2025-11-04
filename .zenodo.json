@@ -1,0 +1,14 @@
+{
+  "title": "HSI paprika (FX10/FX17) — MATLAB code and materials (2023–2025)",
+  "creators": [
+    {
+      "name": "Alonso Sánchez, Jesús",
+      "affiliation": "ICTAN-CSIC & INURA-UEx",
+      "orcid": ""
+    }
+  ],
+  "description": "MATLAB scripts and minimal materials to reproduce PCA, supervised models (nested CV), and PLSR (moisture/ASTA) for smoked paprika (2023–2025).",
+  "license": "MIT",
+  "keywords": ["hyperspectral imaging", "paprika", "FX10", "FX17", "MATLAB", "PLS-DA", "PLSR", "postharvest"],
+  "notes": "Docs/Figures under CC BY 4.0; code under MIT."
+}
