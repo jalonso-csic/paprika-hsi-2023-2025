@@ -8,7 +8,6 @@ authors:
 # Añade coautores si procede:
 #  - family-names: "Apellido"
 #    given-names: "Nombre"
-version: "v1.0.0-rc1"
+version: "v1.0.1"
 date-released: "2025-11-04"
-repository-code: "https://github.com/<OWNER>/<REPO>"
-doi: ""   # lo rellenaremos tras Zenodo
+doi: "10.5281/zenodo.17519522"
