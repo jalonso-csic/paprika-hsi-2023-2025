@@ -33,7 +33,7 @@ set(0, 'DefaultFigureColor','w', ...
 
 %% 3) FILES AND DATA PREPARATION
 output_folder = 'Resultados_PCA_Finales_FX10';
-XLS_Preproc = fullfile(output_folder, 'Datos_Preprocesados.xlsx');
+XLS_Preproc = fullfile(output_folder, 'Datos_Preprocesados_FX10.xlsx');
 XLS_Summary = fullfile(output_folder, 'Resumen_Resultados.xlsx');
 figdir_pca = fullfile(output_folder, 'Figuras_PCA_Scores');
 
