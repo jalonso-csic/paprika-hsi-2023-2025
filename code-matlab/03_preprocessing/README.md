@@ -1,7 +1,19 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17523082.svg)](https://doi.org/10.5281/zenodo.17523082)
+
 # 03_preprocessing — Comparative preprocessing & PCA scores (FX10 / FX17)
 
+## Data availability (Zenodo)
+The cleaned input tables used by these scripts are archived at Zenodo:
+
+**Alonso Sánchez, J. (2025). Paprika — VIS–NIR & SWIR tables with biochemical fields (v1). Zenodo.**  
+DOI: https://doi.org/10.5281/zenodo.17523082
+
+Files:
+- `FX10_con_bioquimicos_PUBLIC.xlsx`
+- `FX17_con_bioquimicos_PUBLIC.xlsx`
+
 ## How to run
-1. Prepare the input Excel tables in your working folder:
+1. Place the input Excel files in your working folder:
    - `FX10_con_bioquimicos_PUBLIC.xlsx`
    - `FX17_con_bioquimicos_PUBLIC.xlsx`
 2. In MATLAB, add this folder to the path:
@@ -20,23 +32,22 @@
 - Load spectra tables and detect spectral columns by prefix `R_`.
 - Apply a comparative set of preprocessing options (SNV, MSC, mean centering, polynomial baseline, Savitzky–Golay 1st/2nd derivatives, and chained variants).
 - Perform PCA on each preprocessed matrix and export score plots (light theme, .jpg + .fig).
-- Compute quick diagnostics: PC1/PC2 variance, Leave-One-Out PLS‑DA accuracy, Mahalanobis outlier count (PC1–PC2), and overall silhouette (PC1–PC2).
+- Compute quick diagnostics: PC1/PC2 variance, Leave-One-Out PLS-DA accuracy, Mahalanobis outlier count (PC1–PC2), and overall silhouette (PC1–PC2).
 - Export a per-method preprocessed table (one sheet per method) and a summary table.
 
 ## Inputs (expected)
 - `FX10_con_bioquimicos_PUBLIC.xlsx`  — cleaned VIS–NIR table.
 - `FX17_con_bioquimicos_PUBLIC.xlsx`  — cleaned NIR–SWIR table.
 
-
 ## Outputs
 - `Resultados_PCA_Finales_FX10/` (from `preprocessing_pca_fx10.m`)
 - `Resultados_PCA_Finales_FX17/` (from `preprocessing_pca_fx17.m`)
   - `Datos_Preprocesados.xlsx` — one sheet per preprocessing method.
-  - `Resumen_Resultados.xlsx` — metrics sorted by PLS‑DA accuracy.
+  - `Resumen_Resultados.xlsx` — metrics sorted by PLS-DA accuracy.
   - `Figuras_PCA_Scores/*.jpg` and `*.fig` — all figures left open for editing.
 
 ## Notes
-- No hard‑coded paths; scripts operate in the current working folder.
-- Grouping column is auto‑detected in this order: `Año`, `Anio`, `Year`, `Tratamiento`.
-- Excel sheet names are sanitized (<=31 chars); writing uses overwrite‑by‑sheet.
-- Default fonts and colors enforce a white (light) theme for publication‑ready figures.
+- No hard-coded paths; scripts operate in the current working folder.
+- Grouping column is auto-detected in this order: `Año`, `Anio`, `Year`, `Tratamiento`.
+- Excel sheet names are sanitized (<=31 chars); writing uses overwrite-by-sheet.
+- Default fonts and colors enforce a white (light) theme for publication-ready figures.
