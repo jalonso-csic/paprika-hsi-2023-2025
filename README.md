@@ -44,9 +44,10 @@
 
 Please cite this repository and the Zenodo archive:
 
-\- GitHub: https://github.com/OWNER/REPO
+- GitHub: https://github.com/jalonso-csic/paprika-hsi-2023-2025 (tag v1.0.1)
+- Zenodo DOI (this version): https://doi.org/10.5281/zenodo.17519522  
+- Concept DOI (all versions): https://doi.org/10.5281/zenodo.17519521
 
-\- Zenodo DOI (versioned): \_to be added after first release\_
 
 
 
