@@ -41,7 +41,8 @@ end
 
 %% ---------------------------- CONFIGURATION -----------------------------
 % --- General Parameters ---
-cfg.data_file   = 'Datos_Preprocesados.xlsx';
+% Cambia esta línea:
+cfg.data_file = 'Datos_Preprocesados_FX10.xlsx';
 cfg.cam_name    = 'FX10';
 cfg.sheets_to_process = {'MSC_1_Derivada_Preproc', 'SNV_1_Derivada_Preproc', 'x1_Derivada_SG_Preproc'};
 
