@@ -14,11 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Record run id
+        shell: bash
+        run: |
+          mkdir -p eco_temp
+          printf '{"run_id":"%s","sha":"%s"}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > eco_temp/eco_build_run.json
+          git config user.name 'ECO export builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add eco_temp/eco_build_run.json
+          git commit -m 'Record ECO Espana v1 export run' || true
+          git push || true
       - name: Build Parquet and DuckDB
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --quiet duckdb pyarrow
+          python -m pip install --quiet duckdb
           mkdir -p /tmp/eco_esp_v1
           base64 -d eco_temp/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv.gz.b64 | gzip -d > /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
           cat > /tmp/eco_esp_v1/build.py <<'PY'
@@ -55,13 +65,3 @@ jobs:
             /tmp/eco_esp_v1/ECO_ESP_Espana_v1.0.duckdb
             /tmp/eco_esp_v1/ECO_ESP_analytical_exports_manifest_v1.0.json
           retention-days: 2
-      - name: Record run id
-        shell: bash
-        run: |
-          mkdir -p eco_temp
-          printf '{"run_id":"%s","sha":"%s"}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > eco_temp/eco_build_run.json
-          git config user.name 'ECO export builder'
-          git config user.email 'actions@users.noreply.github.com'
-          git add eco_temp/eco_build_run.json
-          git commit -m 'Record ECO España v1 export run' || exit 0
-          git push
