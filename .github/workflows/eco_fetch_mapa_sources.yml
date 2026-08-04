@@ -1,5 +1,8 @@
 name: ECO fetch official MAPA sources
 
+permissions:
+  contents: write
+
 on:
   push:
     paths:
@@ -10,16 +13,17 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Download official MAPA source files
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --quiet requests beautifulsoup4
           cat > /tmp/fetch.py <<'PY'
-          import os, re, json, hashlib, urllib.parse
+          import os, json, hashlib, urllib.parse
           import requests
           from bs4 import BeautifulSoup
-          out='/tmp/ECO_MAPA_sources_2015_2022'; os.makedirs(out, exist_ok=True)
+          out='eco_mapa_sources'; os.makedirs(out, exist_ok=True)
           cfg=[
             (2015,'https://www.mapa.gob.es/es/estadistica/temas/publicaciones/anuario-de-estadistica/2016?capitulo=13&grupo=9&parte=3&seccion=9','13.9.9.2','https://www.mapa.gob.es/estadistica/pags/anuario/2016/CAPITULOSPDF/CAPITULO13/pdfc13_9.9.2.pdf'),
             (2016,'https://www.mapa.gob.es/es/estadistica/temas/publicaciones/anuario-de-estadistica/2017?capitulo=13&grupo=9&parte=3&seccion=9','13.9.9.2','https://www.mapa.gob.es/estadistica/pags/anuario/2017/CAPITULOSPDF/CAPITULO13/pdfc13_9.9.2.pdf'),
@@ -34,12 +38,13 @@ jobs:
           for year,page,table,pdf in cfg:
             yd=os.path.join(out,str(year)); os.makedirs(yd,exist_ok=True); urls=[]
             try:
-              r=s.get(page,timeout=45); r.raise_for_status(); open(os.path.join(yd,'official_page.html'),'wb').write(r.content)
+              r=s.get(page,timeout=45); r.raise_for_status()
               soup=BeautifulSoup(r.text,'html.parser')
               for a in soup.find_all('a',href=True):
                 u=urllib.parse.urljoin(page,a['href']); txt=' '.join((a.parent.get_text(' ',strip=True) if a.parent else '').split())
                 if table in txt and any(e in u.lower() for e in ('.xls','.xlsx','.pdf')): urls.append(u)
-            except Exception as e: open(os.path.join(yd,'page_error.txt'),'w').write(repr(e))
+            except Exception as e:
+              manifest.append({'year':year,'table':table,'status':'PAGE_ERROR','url':page,'error':repr(e)})
             urls.append(pdf); seen=[]; ok=[]
             for u in urls:
               if u in seen: continue
@@ -49,18 +54,23 @@ jobs:
                 if ext not in ('.pdf','.xls','.xlsx'):
                   ext='.pdf' if 'pdf' in c else ('.xlsx' if ('excel' in c or 'spreadsheet' in c) else '')
                 if not ext or len(r.content)<1000: continue
-                fn=f'MAPA_Anuario_Cerezo_y_guindo_Analisis_provincial_{year}_{table}{ext}'; open(os.path.join(yd,fn),'wb').write(r.content)
+                fn=f'MAPA_Anuario_Cerezo_y_guindo_Analisis_provincial_{year}_{table}{ext}'
+                open(os.path.join(yd,fn),'wb').write(r.content)
                 d={'year':year,'table':table,'status':'DOWNLOADED','file':fn,'url':u,'final_url':r.url,'content_type':c,'size':len(r.content),'sha256':hashlib.sha256(r.content).hexdigest()}; manifest.append(d); ok.append(d)
-              except Exception as e: manifest.append({'year':year,'table':table,'status':'ERROR','url':u,'error':repr(e)})
+              except Exception as e:
+                manifest.append({'year':year,'table':table,'status':'ERROR','url':u,'error':repr(e)})
             if not ok: raise RuntimeError(f'No official source downloaded for {year}')
             open(os.path.join(yd,'source_metadata.json'),'w',encoding='utf-8').write(json.dumps({'year':year,'page':page,'table':table,'files':ok},ensure_ascii=False,indent=2))
           open(os.path.join(out,'manifest.json'),'w',encoding='utf-8').write(json.dumps(manifest,ensure_ascii=False,indent=2))
           PY
+          rm -rf eco_mapa_sources
           python /tmp/fetch.py
-          find /tmp/ECO_MAPA_sources_2015_2022 -maxdepth 2 -type f -printf '%P\t%s bytes\n' | sort
-      - name: Upload source package
-        uses: actions/upload-artifact@v4
-        with:
-          name: ECO_MAPA_sources_2015_2022
-          path: /tmp/ECO_MAPA_sources_2015_2022
-          retention-days: 2
+          find eco_mapa_sources -maxdepth 2 -type f -printf '%P\t%s bytes\n' | sort
+      - name: Commit temporary source files
+        shell: bash
+        run: |
+          git config user.name 'ECO source archiver'
+          git config user.email 'actions@users.noreply.github.com'
+          git add eco_mapa_sources
+          git commit -m 'Temporary official MAPA source package' || exit 0
+          git push
