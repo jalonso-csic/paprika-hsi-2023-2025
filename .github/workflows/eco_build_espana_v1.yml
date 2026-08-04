@@ -30,10 +30,9 @@ jobs:
           set -euo pipefail
           python -m pip install --quiet duckdb
           mkdir -p /tmp/eco_esp_v1
-          set +e
-          base64 -d eco_temp/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv.gz.b64 | gzip -dc > /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
-          set -e
-          test -s /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
+          cat eco_temp/clean0.b64 eco_temp/clean1.b64 eco_temp/clean2.b64 eco_temp/clean3.b64 eco_temp/clean4.b64 > /tmp/eco_esp_v1/input.b64
+          base64 -d /tmp/eco_esp_v1/input.b64 | gzip -dc > /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
+          echo '06b3f22179f8c842e2b888053e4a39ac74f4e7ef46d5f925f10a6c9a29c82902  /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv' | sha256sum -c -
           cat > /tmp/eco_esp_v1/build.py <<'PY'
           from pathlib import Path
           import duckdb, hashlib, json
@@ -47,15 +46,19 @@ jobs:
                   for b in iter(lambda:f.read(1048576),b''): h.update(b)
               return h.hexdigest()
           con=duckdb.connect(str(db))
-          con.execute("""CREATE TABLE production AS SELECT * FROM read_csv_auto(?,header=true,types={'province_code':'VARCHAR','country_iso2':'VARCHAR','country_iso3':'VARCHAR'},ignore_errors=false)""",[str(src)])
+          con.execute("""CREATE TABLE production AS SELECT * FROM read_csv_auto(?, header=true, encoding='utf-8-sig', types={'province_code':'VARCHAR','country_iso2':'VARCHAR','country_iso3':'VARCHAR','region_nuts2_code':'VARCHAR','nuts3_code_if_1to1':'VARCHAR'})""",[str(src)])
           con.execute('CREATE UNIQUE INDEX ux_record_id ON production(record_id)')
-          con.execute('COPY production TO ? (FORMAT PARQUET,COMPRESSION ZSTD)',[str(pq)])
+          con.execute("""CREATE VIEW national_year AS SELECT country_iso3,country_name,year,taxonomic_scope_flag,provisionality_flag,SUM(area_total_ha) area_total_ha,SUM(area_bearing_ha) area_bearing_ha,SUM(area_harvested_ha) area_harvested_ha,SUM(production_plantations_t) production_plantations_t,SUM(production_scattered_t) production_scattered_t,SUM(production_total_t) production_total_t,CASE WHEN SUM(area_harvested_ha)>0 THEN SUM(production_plantations_t)*1000.0/SUM(area_harvested_ha) END yield_plantations_kg_ha FROM production GROUP BY 1,2,3,4,5""")
+          con.execute("""CREATE VIEW region_year AS SELECT country_iso3,year,region_nuts2_code,region_nuts2_name,taxonomic_scope_flag,provisionality_flag,COUNT(*) n_provinces,SUM(area_total_ha) area_total_ha,SUM(area_bearing_ha) area_bearing_ha,SUM(area_harvested_ha) area_harvested_ha,SUM(production_plantations_t) production_plantations_t,SUM(production_scattered_t) production_scattered_t,SUM(production_total_t) production_total_t,CASE WHEN SUM(area_harvested_ha)>0 THEN SUM(production_plantations_t)*1000.0/SUM(area_harvested_ha) END yield_plantations_kg_ha FROM production GROUP BY 1,2,3,4,5,6""")
           assert con.execute('SELECT COUNT(*) FROM production').fetchone()[0]==500
+          assert con.execute('SELECT COUNT(DISTINCT record_id) FROM production').fetchone()[0]==500
           assert con.execute('SELECT MIN(year),MAX(year),COUNT(DISTINCT year) FROM production').fetchone()==(2015,2024,10)
           assert con.execute('SELECT COUNT(DISTINCT province_code) FROM production').fetchone()[0]==50
-          assert con.execute('SELECT COUNT(*) FROM production WHERE production_plantations_t + production_scattered_t <> production_total_t').fetchone()[0]==0
+          assert con.execute('SELECT COUNT(*) FROM production WHERE ABS(production_plantations_t + production_scattered_t - production_total_t) > 1e-9').fetchone()[0]==0
+          con.execute('COPY production TO ? (FORMAT PARQUET, COMPRESSION ZSTD)',[str(pq)])
+          assert con.execute('SELECT COUNT(*) FROM read_parquet(?)',[str(pq)]).fetchone()[0]==500
           con.close()
-          m={'csv':src.name,'csv_sha256':sha(src),'parquet':pq.name,'parquet_sha256':sha(pq),'duckdb':db.name,'duckdb_sha256':sha(db),'rows':500,'years':[2015,2024],'provinces':50,'validation':'PASSED'}
+          m={'csv':src.name,'csv_sha256':sha(src),'parquet':pq.name,'parquet_sha256':sha(pq),'duckdb':db.name,'duckdb_sha256':sha(db),'rows':500,'years':[2015,2024],'provinces':50,'tables':['production'],'views':['national_year','region_year'],'validation':'PASSED'}
           (p/'ECO_ESP_analytical_exports_manifest_v1.0.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(m,ensure_ascii=False,indent=2))
           PY
