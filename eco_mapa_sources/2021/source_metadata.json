@@ -1,0 +1,18 @@
+{
+  "year": 2021,
+  "page": "https://www.mapa.gob.es/es/estadistica/temas/publicaciones/anuario-de-estadistica/2022?capitulo=7&grupo=9&parte=3&seccion=9",
+  "table": "7.9.9.2",
+  "files": [
+    {
+      "year": 2021,
+      "table": "7.9.9.2",
+      "status": "DOWNLOADED",
+      "file": "MAPA_Anuario_Cerezo_y_guindo_Analisis_provincial_2021_7.9.9.2.pdf",
+      "url": "https://www.mapa.gob.es/estadistica/pags/anuario/2022/FORMATO%20PDF/AE22-C07/7.9.9.2.pdf",
+      "final_url": "https://www.mapa.gob.es/estadistica/pags/anuario/2022/FORMATO%20PDF/AE22-C07/7.9.9.2.pdf",
+      "content_type": "application/pdf",
+      "size": 40987,
+      "sha256": "2a01efdcd460fdf6c3e9298f82a137493def186547e088b7c2e051e00d943bc9"
+    }
+  ]
+}

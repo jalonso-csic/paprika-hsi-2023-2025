@@ -1,0 +1,18 @@
+{
+  "year": 2015,
+  "page": "https://www.mapa.gob.es/es/estadistica/temas/publicaciones/anuario-de-estadistica/2016?capitulo=13&grupo=9&parte=3&seccion=9",
+  "table": "13.9.9.2",
+  "files": [
+    {
+      "year": 2015,
+      "table": "13.9.9.2",
+      "status": "DOWNLOADED",
+      "file": "MAPA_Anuario_Cerezo_y_guindo_Analisis_provincial_2015_13.9.9.2.pdf",
+      "url": "https://www.mapa.gob.es/estadistica/pags/anuario/2016/CAPITULOSPDF/CAPITULO13/pdfc13_9.9.2.pdf",
+      "final_url": "https://www.mapa.gob.es/estadistica/pags/anuario/2016/CAPITULOSPDF/CAPITULO13/pdfc13_9.9.2.pdf",
+      "content_type": "application/pdf",
+      "size": 211022,
+      "sha256": "1af19b5184563eeb7c76bd334182a5e5022dc8897434778ceb3682793d500fd0"
+    }
+  ]
+}

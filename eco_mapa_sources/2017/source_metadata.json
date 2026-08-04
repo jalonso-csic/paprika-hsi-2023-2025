@@ -1,0 +1,18 @@
+{
+  "year": 2017,
+  "page": "https://www.mapa.gob.es/es/estadistica/temas/publicaciones/anuario-de-estadistica/2018?capitulo=7&grupo=9&parte=3&seccion=9",
+  "table": "7.9.9.2",
+  "files": [
+    {
+      "year": 2017,
+      "table": "7.9.9.2",
+      "status": "DOWNLOADED",
+      "file": "MAPA_Anuario_Cerezo_y_guindo_Analisis_provincial_2017_7.9.9.2.pdf",
+      "url": "https://www.mapa.gob.es/estadistica/pags/anuario/2018/CAPITULOSPDF/CAPITULO07/pdfc07_9.9.2.pdf",
+      "final_url": "https://www.mapa.gob.es/estadistica/pags/anuario/2018/CAPITULOSPDF/CAPITULO07/pdfc07_9.9.2.pdf",
+      "content_type": "application/pdf",
+      "size": 267053,
+      "sha256": "87f813ee99b261ebe80d4c137fd6ce22b20c9b24cc274892121db4e52d160370"
+    }
+  ]
+}
