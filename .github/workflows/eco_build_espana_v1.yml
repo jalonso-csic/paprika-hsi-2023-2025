@@ -37,7 +37,10 @@ jobs:
           from pathlib import Path
           import duckdb, hashlib, json
           p=Path('/tmp/eco_esp_v1')
-          src=p/'ECO_ESP_produccion_provincial_2015_2024_v1.0.csv'
+          original=p/'ECO_ESP_produccion_provincial_2015_2024_v1.0.csv'
+          src=p/'ECO_ESP_produccion_provincial_2015_2024_v1.0_utf8.csv'
+          raw=original.read_bytes()
+          src.write_bytes(raw[3:] if raw.startswith(b'\xef\xbb\xbf') else raw)
           db=p/'ECO_ESP_Espana_v1.0.duckdb'
           pq=p/'ECO_ESP_produccion_provincial_2015_2024_v1.0.parquet'
           def sha(x):
@@ -46,7 +49,7 @@ jobs:
                   for b in iter(lambda:f.read(1048576),b''): h.update(b)
               return h.hexdigest()
           con=duckdb.connect(str(db))
-          con.execute("""CREATE TABLE production AS SELECT * FROM read_csv_auto(?, header=true, encoding='utf-8-sig', types={'province_code':'VARCHAR','country_iso2':'VARCHAR','country_iso3':'VARCHAR','region_nuts2_code':'VARCHAR','nuts3_code_if_1to1':'VARCHAR'})""",[str(src)])
+          con.execute("""CREATE TABLE production AS SELECT * FROM read_csv_auto(?, header=true, encoding='utf-8', types={'province_code':'VARCHAR','country_iso2':'VARCHAR','country_iso3':'VARCHAR','region_nuts2_code':'VARCHAR','nuts3_code_if_1to1':'VARCHAR'})""",[str(src)])
           con.execute('CREATE UNIQUE INDEX ux_record_id ON production(record_id)')
           con.execute("""CREATE VIEW national_year AS SELECT country_iso3,country_name,year,taxonomic_scope_flag,provisionality_flag,SUM(area_total_ha) area_total_ha,SUM(area_bearing_ha) area_bearing_ha,SUM(area_harvested_ha) area_harvested_ha,SUM(production_plantations_t) production_plantations_t,SUM(production_scattered_t) production_scattered_t,SUM(production_total_t) production_total_t,CASE WHEN SUM(area_harvested_ha)>0 THEN SUM(production_plantations_t)*1000.0/SUM(area_harvested_ha) END yield_plantations_kg_ha FROM production GROUP BY 1,2,3,4,5""")
           con.execute("""CREATE VIEW region_year AS SELECT country_iso3,year,region_nuts2_code,region_nuts2_name,taxonomic_scope_flag,provisionality_flag,COUNT(*) n_provinces,SUM(area_total_ha) area_total_ha,SUM(area_bearing_ha) area_bearing_ha,SUM(area_harvested_ha) area_harvested_ha,SUM(production_plantations_t) production_plantations_t,SUM(production_scattered_t) production_scattered_t,SUM(production_total_t) production_total_t,CASE WHEN SUM(area_harvested_ha)>0 THEN SUM(production_plantations_t)*1000.0/SUM(area_harvested_ha) END yield_plantations_kg_ha FROM production GROUP BY 1,2,3,4,5,6""")
@@ -58,7 +61,7 @@ jobs:
           con.execute('COPY production TO ? (FORMAT PARQUET, COMPRESSION ZSTD)',[str(pq)])
           assert con.execute('SELECT COUNT(*) FROM read_parquet(?)',[str(pq)]).fetchone()[0]==500
           con.close()
-          m={'csv':src.name,'csv_sha256':sha(src),'parquet':pq.name,'parquet_sha256':sha(pq),'duckdb':db.name,'duckdb_sha256':sha(db),'rows':500,'years':[2015,2024],'provinces':50,'tables':['production'],'views':['national_year','region_year'],'validation':'PASSED'}
+          m={'csv':original.name,'csv_sha256':sha(original),'parquet':pq.name,'parquet_sha256':sha(pq),'duckdb':db.name,'duckdb_sha256':sha(db),'rows':500,'years':[2015,2024],'provinces':50,'tables':['production'],'views':['national_year','region_year'],'validation':'PASSED'}
           (p/'ECO_ESP_analytical_exports_manifest_v1.0.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(m,ensure_ascii=False,indent=2))
           PY
