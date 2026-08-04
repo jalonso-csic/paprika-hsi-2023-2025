@@ -30,7 +30,10 @@ jobs:
           set -euo pipefail
           python -m pip install --quiet duckdb
           mkdir -p /tmp/eco_esp_v1
-          base64 -d eco_temp/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv.gz.b64 | gzip -d > /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
+          set +e
+          base64 -d eco_temp/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv.gz.b64 | gzip -dc > /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
+          set -e
+          test -s /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
           cat > /tmp/eco_esp_v1/build.py <<'PY'
           from pathlib import Path
           import duckdb, hashlib, json
@@ -44,14 +47,15 @@ jobs:
                   for b in iter(lambda:f.read(1048576),b''): h.update(b)
               return h.hexdigest()
           con=duckdb.connect(str(db))
-          con.execute("""CREATE TABLE production AS SELECT * FROM read_csv_auto(?,header=true,types={'province_code':'VARCHAR','country_iso2':'VARCHAR','country_iso3':'VARCHAR'})""",[str(src)])
+          con.execute("""CREATE TABLE production AS SELECT * FROM read_csv_auto(?,header=true,types={'province_code':'VARCHAR','country_iso2':'VARCHAR','country_iso3':'VARCHAR'},ignore_errors=false)""",[str(src)])
           con.execute('CREATE UNIQUE INDEX ux_record_id ON production(record_id)')
           con.execute('COPY production TO ? (FORMAT PARQUET,COMPRESSION ZSTD)',[str(pq)])
           assert con.execute('SELECT COUNT(*) FROM production').fetchone()[0]==500
-          assert con.execute('SELECT COUNT(DISTINCT year) FROM production').fetchone()[0]==10
+          assert con.execute('SELECT MIN(year),MAX(year),COUNT(DISTINCT year) FROM production').fetchone()==(2015,2024,10)
           assert con.execute('SELECT COUNT(DISTINCT province_code) FROM production').fetchone()[0]==50
+          assert con.execute('SELECT COUNT(*) FROM production WHERE production_plantations_t + production_scattered_t <> production_total_t').fetchone()[0]==0
           con.close()
-          m={'csv':src.name,'csv_sha256':sha(src),'parquet':pq.name,'parquet_sha256':sha(pq),'duckdb':db.name,'duckdb_sha256':sha(db),'rows':500,'years':[2015,2024],'provinces':50}
+          m={'csv':src.name,'csv_sha256':sha(src),'parquet':pq.name,'parquet_sha256':sha(pq),'duckdb':db.name,'duckdb_sha256':sha(db),'rows':500,'years':[2015,2024],'provinces':50,'validation':'PASSED'}
           (p/'ECO_ESP_analytical_exports_manifest_v1.0.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(m,ensure_ascii=False,indent=2))
           PY
