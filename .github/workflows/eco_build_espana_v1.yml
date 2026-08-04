@@ -1,0 +1,67 @@
+name: ECO build Espana v1 analytical exports
+
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - '.github/workflows/eco_build_espana_v1.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Parquet and DuckDB
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet duckdb pyarrow
+          mkdir -p /tmp/eco_esp_v1
+          base64 -d eco_temp/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv.gz.b64 | gzip -d > /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.csv
+          cat > /tmp/eco_esp_v1/build.py <<'PY'
+          from pathlib import Path
+          import duckdb, hashlib, json
+          p=Path('/tmp/eco_esp_v1')
+          src=p/'ECO_ESP_produccion_provincial_2015_2024_v1.0.csv'
+          db=p/'ECO_ESP_Espana_v1.0.duckdb'
+          pq=p/'ECO_ESP_produccion_provincial_2015_2024_v1.0.parquet'
+          def sha(x):
+              h=hashlib.sha256()
+              with open(x,'rb') as f:
+                  for b in iter(lambda:f.read(1048576),b''): h.update(b)
+              return h.hexdigest()
+          con=duckdb.connect(str(db))
+          con.execute("""CREATE TABLE production AS SELECT * FROM read_csv_auto(?,header=true,types={'province_code':'VARCHAR','country_iso2':'VARCHAR','country_iso3':'VARCHAR'})""",[str(src)])
+          con.execute('CREATE UNIQUE INDEX ux_record_id ON production(record_id)')
+          con.execute('COPY production TO ? (FORMAT PARQUET,COMPRESSION ZSTD)',[str(pq)])
+          assert con.execute('SELECT COUNT(*) FROM production').fetchone()[0]==500
+          assert con.execute('SELECT COUNT(DISTINCT year) FROM production').fetchone()[0]==10
+          assert con.execute('SELECT COUNT(DISTINCT province_code) FROM production').fetchone()[0]==50
+          con.close()
+          m={'csv':src.name,'csv_sha256':sha(src),'parquet':pq.name,'parquet_sha256':sha(pq),'duckdb':db.name,'duckdb_sha256':sha(db),'rows':500,'years':[2015,2024],'provinces':50}
+          (p/'ECO_ESP_analytical_exports_manifest_v1.0.json').write_text(json.dumps(m,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(m,ensure_ascii=False,indent=2))
+          PY
+          python /tmp/eco_esp_v1/build.py
+      - name: Upload analytical package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ECO_ESP_analytical_exports_v1.0
+          path: |
+            /tmp/eco_esp_v1/ECO_ESP_produccion_provincial_2015_2024_v1.0.parquet
+            /tmp/eco_esp_v1/ECO_ESP_Espana_v1.0.duckdb
+            /tmp/eco_esp_v1/ECO_ESP_analytical_exports_manifest_v1.0.json
+          retention-days: 2
+      - name: Record run id
+        shell: bash
+        run: |
+          mkdir -p eco_temp
+          printf '{"run_id":"%s","sha":"%s"}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > eco_temp/eco_build_run.json
+          git config user.name 'ECO export builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add eco_temp/eco_build_run.json
+          git commit -m 'Record ECO España v1 export run' || exit 0
+          git push
