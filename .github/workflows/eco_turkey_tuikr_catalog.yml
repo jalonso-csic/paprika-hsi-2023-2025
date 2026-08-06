@@ -1,0 +1,132 @@
+name: ECO Turkey official TUIK catalog
+
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - '.github/workflows/eco_turkey_tuikr_catalog.yml'
+  workflow_dispatch:
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install R dependencies
+        shell: bash
+        run: |
+          Rscript -e 'install.packages(c("remotes","dplyr","readr","jsonlite","stringr","tibble"), repos="https://cloud.r-project.org")'
+          Rscript -e 'remotes::install_github("emraher/tuikr", upgrade="never")'
+
+      - name: Query official TUIK agriculture catalog and candidate data
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf eco_temp_turkey_tuikr
+          mkdir -p eco_temp_turkey_tuikr/downloads eco_temp_turkey_tuikr/data
+          cat > /tmp/eco_turkey_catalog.R <<'RS'
+          suppressPackageStartupMessages({
+            library(tuikr)
+            library(dplyr)
+            library(readr)
+            library(jsonlite)
+            library(stringr)
+          })
+
+          out <- "eco_temp_turkey_tuikr"
+          pattern <- regex("kiraz|vişne|visne|meyve|fruit|bitkisel üretim|crop production|bahçe|bahce|orchard", ignore_case = TRUE)
+
+          status <- list(
+            generated_at = format(Sys.time(), tz="UTC", usetz=TRUE),
+            theme = "13 Agriculture",
+            catalog_status = "PENDING",
+            candidate_count = 0,
+            dataflow_attempts = list(),
+            file_attempts = list()
+          )
+
+          tr <- statistical_tables("13", lang="tr")
+          en <- statistical_tables("13", lang="en")
+          write_csv(tr, file.path(out, "agriculture_tables_tr.csv"))
+          write_csv(en, file.path(out, "agriculture_tables_en.csv"))
+
+          tr_candidates <- tr %>% filter(str_detect(table_name, pattern))
+          en_candidates <- en %>% filter(str_detect(table_name, pattern))
+          candidates <- bind_rows(
+            tr_candidates %>% mutate(catalog_lang="tr"),
+            en_candidates %>% mutate(catalog_lang="en")
+          ) %>% distinct(node_type, dataflow_id, table_url, .keep_all=TRUE)
+          write_csv(candidates, file.path(out, "agriculture_candidates.csv"))
+          status$catalog_status <- "PASSED"
+          status$candidate_count <- nrow(candidates)
+
+          # Legacy databases provide an official fallback route.
+          db_tr <- tryCatch(statistical_databases("13", lang="tr"), error=function(e) NULL)
+          if (!is.null(db_tr)) write_csv(db_tr, file.path(out, "agriculture_databases_tr.csv"))
+
+          # Attempt direct static file downloads.
+          file_candidates <- candidates %>% filter(node_type == "istab", !is.na(table_url))
+          if (nrow(file_candidates) > 0) {
+            for (i in seq_len(nrow(file_candidates))) {
+              u <- file_candidates$table_url[i]
+              nm <- paste0(sprintf("%02d", i), "_", str_replace_all(substr(file_candidates$table_name[i],1,80), "[^[:alnum:]_-]+", "_"), ".bin")
+              dest <- file.path(out, "downloads", nm)
+              attempt <- list(name=file_candidates$table_name[i], url=u, status="FAILED")
+              tryCatch({
+                download.file(u, destfile=dest, mode="wb", quiet=TRUE)
+                attempt$status <- "DOWNLOADED"
+                attempt$bytes <- file.info(dest)$size
+              }, error=function(e) attempt$error <<- conditionMessage(e))
+              status$file_attempts[[length(status$file_attempts)+1]] <- attempt
+            }
+          }
+
+          # Query each candidate SDMX dataflow for 2024 and retain cherry-related rows.
+          flows <- candidates %>% filter(node_type == "dataflow", !is.na(dataflow_id)) %>% distinct(dataflow_id, .keep_all=TRUE)
+          if (nrow(flows) > 0) {
+            for (i in seq_len(nrow(flows))) {
+              id <- flows$dataflow_id[i]
+              nm <- str_replace_all(id, "[^[:alnum:]_-]+", "_")
+              attempt <- list(name=flows$table_name[i], dataflow_id=id, status="FAILED")
+              tryCatch({
+                dat <- statistical_data(id, start="2024", end="2024", lang="tr")
+                attempt$status <- "DOWNLOADED"
+                attempt$rows <- nrow(dat)
+                attempt$columns <- names(dat)
+                write_csv(dat, file.path(out, "data", paste0(nm, "_2024_all.csv")))
+                text_cols <- names(dat)[vapply(dat, is.character, logical(1))]
+                if (length(text_cols)) {
+                  mask <- Reduce(`|`, lapply(text_cols, function(z) str_detect(coalesce(dat[[z]], ""), regex("kiraz|vişne|visne", ignore_case=TRUE))))
+                  cherries <- dat[mask, , drop=FALSE]
+                } else cherries <- dat[0, , drop=FALSE]
+                attempt$cherry_rows <- nrow(cherries)
+                if (nrow(cherries) > 0) {
+                  write_csv(cherries, file.path(out, "data", paste0(nm, "_2024_cherries.csv")))
+                }
+              }, error=function(e) attempt$error <<- conditionMessage(e))
+              status$dataflow_attempts[[length(status$dataflow_attempts)+1]] <- attempt
+            }
+          }
+
+          write_json(status, file.path(out, "status.json"), pretty=TRUE, auto_unbox=TRUE, null="null")
+          cat(toJSON(status, pretty=TRUE, auto_unbox=TRUE, null="null"))
+          RS
+          Rscript /tmp/eco_turkey_catalog.R
+
+      - name: Commit results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ECO Turkey official catalog'
+          git config user.email 'actions@users.noreply.github.com'
+          git add eco_temp_turkey_tuikr
+          git commit -m 'Record ECO Turkey official TUIK catalog results' || true
+          git push
