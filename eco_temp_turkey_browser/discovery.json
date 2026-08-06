@@ -1,0 +1,18 @@
+{
+  "bulk": {},
+  "press": {},
+  "network": [],
+  "downloads": [],
+  "errors": [
+    {
+      "bulk_page": "Error('Page.goto: net::ERR_TIMED_OUT at https://veriportali.tuik.gov.tr/tr/bulk-download\\nCall log:\\n  - navigating to \"https://veriportali.tuik.gov.tr/tr/bulk-download\", waiting until \"networkidle\"\\n')"
+    },
+    {
+      "press_page": "Error('Page.goto: net::ERR_TIMED_OUT at https://veriportali.tuik.gov.tr/tr/press/53447\\nCall log:\\n  - navigating to \"https://veriportali.tuik.gov.tr/tr/press/53447\", waiting until \"networkidle\"\\n')"
+    },
+    {
+      "storage": "Error(\"Page.evaluate: SecurityError: Failed to read the 'localStorage' property from 'Window': Access is denied for this document.\\n    at eval (<anonymous>)\\n    at UtilityScript.evaluate (<anonymous>:311:30)\\n    at UtilityScript.<anonymous> (<anonymous>:1:44)\")"
+    }
+  ],
+  "cookies": []
+}
