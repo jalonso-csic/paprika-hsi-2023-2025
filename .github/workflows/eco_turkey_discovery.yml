@@ -1,0 +1,132 @@
+name: ECO Turkey SDMX discovery
+
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - '.github/workflows/eco_turkey_discovery.yml'
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Query official TURKSTAT SDMX service
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p eco_temp_turkey
+          cat > /tmp/discover_tuik.py <<'PY'
+          import json
+          import ssl
+          import urllib.request
+          import urllib.error
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          endpoints = [
+              'https://nsiws.tuik.gov.tr/rest/dataflow/all/all/latest?detail=allstubs',
+              'https://nsiws.tuik.gov.tr/rest/dataflow/TR/all/latest?detail=allstubs',
+              'https://nsiws.tuik.gov.tr/rest/dataflow/all/all/latest?detail=allstubs&references=none',
+          ]
+          keywords = [
+              'crop', 'plant production', 'crop production', 'agriculture',
+              'fruit', 'fruits', 'cherry', 'sour cherry',
+              'bitkisel', 'üretim', 'uretim', 'meyve', 'kiraz', 'vişne', 'visne'
+          ]
+          context = ssl.create_default_context()
+          attempts = []
+          payload = None
+          selected_url = None
+          for url in endpoints:
+              try:
+                  req = urllib.request.Request(url, headers={
+                      'User-Agent': 'ECO-European-Cherry-Observatory/1.0',
+                      'Accept': 'application/vnd.sdmx.structure+xml;version=2.1, application/xml;q=0.9, */*;q=0.8'
+                  })
+                  with urllib.request.urlopen(req, timeout=90, context=context) as r:
+                      data = r.read()
+                      attempts.append({'url': url, 'status': r.status, 'bytes': len(data), 'content_type': r.headers.get('content-type')})
+                      if data:
+                          payload = data
+                          selected_url = url
+                          break
+              except Exception as e:
+                  attempts.append({'url': url, 'error': repr(e)})
+
+          result = {
+              'source': 'Official TURKSTAT SDMX web service',
+              'endpoint_attempts': attempts,
+              'selected_endpoint': selected_url,
+              'matches': [],
+              'all_dataflows_count': None,
+              'status': 'FAILED'
+          }
+
+          if payload:
+              Path('/tmp/dataflows.xml').write_bytes(payload)
+              root = ET.fromstring(payload)
+              matches = []
+              allflows = []
+              for elem in root.iter():
+                  if elem.tag.split('}')[-1] != 'Dataflow':
+                      continue
+                  flow_id = elem.attrib.get('id') or elem.attrib.get('ID')
+                  agency = elem.attrib.get('agencyID') or elem.attrib.get('agencyId') or elem.attrib.get('agency')
+                  version = elem.attrib.get('version')
+                  names = []
+                  descriptions = []
+                  for child in list(elem):
+                      local = child.tag.split('}')[-1]
+                      txt = (child.text or '').strip()
+                      lang = child.attrib.get('{http://www.w3.org/XML/1998/namespace}lang')
+                      if local == 'Name' and txt:
+                          names.append({'lang': lang, 'text': txt})
+                      elif local == 'Description' and txt:
+                          descriptions.append({'lang': lang, 'text': txt})
+                  text_blob = ' '.join([x['text'] for x in names + descriptions]).lower()
+                  item = {
+                      'agency': agency,
+                      'id': flow_id,
+                      'version': version,
+                      'dataflow_id': ','.join([str(agency or 'TR'), str(flow_id or ''), str(version or '1.0')]),
+                      'names': names,
+                      'descriptions': descriptions
+                  }
+                  allflows.append(item)
+                  hit_keywords = [k for k in keywords if k.lower() in text_blob]
+                  if hit_keywords:
+                      item['matched_keywords'] = hit_keywords
+                      matches.append(item)
+              result['all_dataflows_count'] = len(allflows)
+              result['matches'] = matches
+              result['status'] = 'PASSED' if matches else 'NO_MATCHES'
+              # Include likely agricultural flows even if language/name matching is sparse.
+              result['id_candidates'] = [
+                  f for f in allflows
+                  if any(tok in (f.get('id') or '').upper() for tok in ['BITKI', 'TARIM', 'MEYVE', 'URETIM', 'URUN'])
+              ]
+
+          Path('eco_temp_turkey/eco_turkey_discovery.json').write_text(
+              json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
+          )
+          Path('eco_temp_turkey/run.json').write_text(
+              json.dumps({'run_id': '${{ github.run_id }}', 'sha': '${{ github.sha }}'}, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+          python /tmp/discover_tuik.py
+
+      - name: Commit discovery result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ECO Turkey discovery'
+          git config user.email 'actions@users.noreply.github.com'
+          git add eco_temp_turkey/eco_turkey_discovery.json eco_temp_turkey/run.json
+          git commit -m 'Record ECO Turkey SDMX discovery' || true
+          git push
