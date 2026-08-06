@@ -1,0 +1,252 @@
+name: ECO Turkey browser discovery
+
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - '.github/workflows/eco_turkey_browser_discovery.yml'
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Discover official crop dataflow and download routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p eco_temp_turkey_browser
+          cat > /tmp/discover_browser.py <<'PY'
+          import asyncio, json, re, os, hashlib
+          from pathlib import Path
+          from playwright.async_api import async_playwright
+
+          OUT = Path('eco_temp_turkey_browser')
+          results = {
+              'bulk': {}, 'press': {}, 'network': [], 'downloads': [], 'errors': []
+          }
+
+          def compact(s, n=4000):
+              s = re.sub(r'\s+', ' ', s or '').strip()
+              return s[:n]
+
+          async def capture_response(resp):
+              url = resp.url
+              ct = (resp.headers.get('content-type') or '').lower()
+              if any(k in url.lower() for k in ['bulk', 'sdmx', 'dataflow', 'databrowser', 'download', 'api/']) or any(k in ct for k in ['json','xml','csv']):
+                  item = {'url': url, 'status': resp.status, 'content_type': ct}
+                  try:
+                      if ('json' in ct or 'xml' in ct or 'text' in ct) and int(resp.headers.get('content-length','0') or 0) < 5_000_000:
+                          txt = await resp.text()
+                          item['body_excerpt'] = compact(txt, 12000)
+                  except Exception as e:
+                      item['body_error'] = repr(e)
+                  results['network'].append(item)
+
+          async def save_download(download):
+              suggested = download.suggested_filename
+              path = OUT / ('download_' + re.sub(r'[^A-Za-z0-9._-]+','_',suggested))
+              await download.save_as(path)
+              data = path.read_bytes()
+              results['downloads'].append({
+                  'suggested_filename': suggested,
+                  'path': str(path),
+                  'bytes': len(data),
+                  'sha256': hashlib.sha256(data).hexdigest(),
+                  'url': download.url
+              })
+
+          async with async_playwright() as p:
+              browser = await p.chromium.launch(headless=True)
+              context = await browser.new_context(
+                  locale='tr-TR',
+                  accept_downloads=True,
+                  viewport={'width': 1600, 'height': 1100},
+                  user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
+              )
+              page = await context.new_page()
+              page.on('response', capture_response)
+              page.on('download', save_download)
+
+              # Bulk page
+              try:
+                  await page.goto('https://veriportali.tuik.gov.tr/tr/bulk-download', wait_until='networkidle', timeout=120000)
+                  await page.wait_for_timeout(5000)
+                  results['bulk']['url'] = page.url
+                  results['bulk']['title'] = await page.title()
+                  text = await page.locator('body').inner_text()
+                  results['bulk']['body_excerpt'] = compact(text, 30000)
+                  results['bulk']['inputs'] = await page.locator('input').count()
+                  results['bulk']['buttons'] = await page.locator('button').all_inner_texts()
+                  results['bulk']['links'] = await page.locator('a').evaluate_all("els => els.map(a => ({text:(a.innerText||'').trim(), href:a.href})).filter(x => x.text || x.href)")
+                  await page.screenshot(path=str(OUT/'bulk_initial.png'), full_page=True)
+
+                  # Try all text/search inputs with crop terms.
+                  input_count = await page.locator('input').count()
+                  for i in range(input_count):
+                      inp = page.locator('input').nth(i)
+                      try:
+                          typ = await inp.get_attribute('type')
+                          ph = await inp.get_attribute('placeholder')
+                          if typ in (None, 'text', 'search'):
+                              await inp.fill('Bitkisel Üretim')
+                              await page.wait_for_timeout(2500)
+                              body = await page.locator('body').inner_text()
+                              if any(k in body.lower() for k in ['bitkisel', 'meyve', 'crop production']):
+                                  results['bulk']['search_input_index'] = i
+                                  results['bulk']['search_placeholder'] = ph
+                                  results['bulk']['after_search_excerpt'] = compact(body, 30000)
+                                  await page.screenshot(path=str(OUT/'bulk_after_search.png'), full_page=True)
+                                  break
+                              await inp.fill('')
+                      except Exception:
+                          pass
+
+                  # collect cards/rows containing relevant terms and their buttons/links
+                  relevant = page.locator("text=/Bitkisel|Meyve|Crop Production|Fruit/i")
+                  results['bulk']['relevant_count'] = await relevant.count()
+                  rel_items=[]
+                  for i in range(min(await relevant.count(), 50)):
+                      loc=relevant.nth(i)
+                      try:
+                          rel_items.append(compact(await loc.inner_text(), 2000))
+                      except Exception: pass
+                  results['bulk']['relevant_items']=rel_items
+
+                  # Click likely download buttons near matching text.
+                  candidates = page.get_by_text(re.compile('Bitkisel|Meyve|Crop Production|Fruit', re.I))
+                  for i in range(min(await candidates.count(), 10)):
+                      loc = candidates.nth(i)
+                      try:
+                          container = loc.locator('xpath=ancestor::*[self::tr or self::div][1]')
+                          txt = compact(await container.inner_text(), 3000)
+                          buttons = container.locator('button')
+                          links = container.locator('a')
+                          entry={'text':txt,'buttons':await buttons.all_inner_texts(),'links':await links.evaluate_all("els=>els.map(a=>({text:(a.innerText||'').trim(),href:a.href}))")}
+                          results['bulk'].setdefault('candidate_containers',[]).append(entry)
+                          for j in range(await buttons.count()):
+                              b=buttons.nth(j)
+                              bt=(await b.inner_text()).strip()
+                              if re.search('İndir|Download', bt, re.I):
+                                  try:
+                                      await b.click(timeout=10000)
+                                      await page.wait_for_timeout(4000)
+                                  except Exception as e:
+                                      results['errors'].append({'bulk_button':bt,'error':repr(e)})
+                          for j in range(await links.count()):
+                              a=links.nth(j)
+                              at=(await a.inner_text()).strip()
+                              href=await a.get_attribute('href')
+                              if re.search('İndir|Download', at, re.I) or (href and 'download' in href.lower()):
+                                  try:
+                                      await a.click(timeout=10000)
+                                      await page.wait_for_timeout(4000)
+                                  except Exception as e:
+                                      results['errors'].append({'bulk_link':at,'href':href,'error':repr(e)})
+                      except Exception as e:
+                          results['errors'].append({'bulk_candidate':i,'error':repr(e)})
+              except Exception as e:
+                  results['errors'].append({'bulk_page':repr(e)})
+
+              # Press page and table link discovery
+              try:
+                  await page.goto('https://veriportali.tuik.gov.tr/tr/press/53447', wait_until='networkidle', timeout=120000)
+                  await page.wait_for_timeout(5000)
+                  results['press']['url']=page.url
+                  results['press']['title']=await page.title()
+                  body=await page.locator('body').inner_text()
+                  results['press']['body_excerpt']=compact(body,30000)
+                  results['press']['links']=await page.locator('a').evaluate_all("els=>els.map(a=>({text:(a.innerText||'').trim(),href:a.href})).filter(x=>x.text||x.href)")
+                  results['press']['buttons']=await page.locator('button').all_inner_texts()
+                  await page.screenshot(path=str(OUT/'press.png'), full_page=True)
+
+                  table_text = re.compile('Meyve ürünleri.*baharat|Production of fruits.*spices', re.I)
+                  locs=page.get_by_text(table_text)
+                  results['press']['fruit_table_matches']=await locs.count()
+                  for i in range(await locs.count()):
+                      loc=locs.nth(i)
+                      try:
+                          results['press'].setdefault('fruit_elements',[]).append({
+                              'text':compact(await loc.inner_text(),2000),
+                              'tag':await loc.evaluate('e=>e.tagName'),
+                              'outer':compact(await loc.evaluate('e=>e.outerHTML'),6000)
+                          })
+                          await loc.click(timeout=15000)
+                          await page.wait_for_timeout(6000)
+                          results['press'].setdefault('after_click_urls',[]).append(page.url)
+                          results['press'].setdefault('after_click_body',[]).append(compact(await page.locator('body').inner_text(),30000))
+                          await page.screenshot(path=str(OUT/f'press_after_click_{i}.png'), full_page=True)
+                          break
+                      except Exception as e:
+                          results['errors'].append({'press_table_click':i,'error':repr(e)})
+              except Exception as e:
+                  results['errors'].append({'press_page':repr(e)})
+
+              # Save storage/cookies to understand authorization.
+              try:
+                  results['cookies']=await context.cookies()
+                  results['local_storage']=await page.evaluate("Object.fromEntries(Object.entries(localStorage))")
+                  results['session_storage']=await page.evaluate("Object.fromEntries(Object.entries(sessionStorage))")
+              except Exception as e:
+                  results['errors'].append({'storage':repr(e)})
+
+              await browser.close()
+
+          # Deduplicate network by URL/status/body excerpt
+          seen=set(); ded=[]
+          for x in results['network']:
+              key=(x.get('url'),x.get('status'),x.get('body_excerpt','')[:500])
+              if key not in seen:
+                  seen.add(key); ded.append(x)
+          results['network']=ded
+          (OUT/'discovery.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps({'bulk':results['bulk'].get('url'),'press':results['press'].get('url'),'network_n':len(results['network']),'downloads':results['downloads'],'errors':results['errors']},ensure_ascii=False,indent=2))
+
+          asyncio.run(asyncio.wait_for(asyncio.create_task(asyncio.sleep(0)), timeout=1)) if False else None
+          PY
+          # fix script execution footer cleanly
+          echo 'asyncio.run(main())' >/dev/null
+          python - <<'PY'
+          p='/tmp/discover_browser.py'
+          s=open(p,encoding='utf-8').read()
+          marker='          async with async_playwright() as p:'
+          # Wrap generated body in main by inserting before the async-with and indenting remaining body is already 10 spaces.
+          # Simpler: replace top-level "async with" indentation block with function declaration before it.
+          s=s.replace('          async with async_playwright() as p:', '          async def main():\n              async with async_playwright() as p:',1)
+          # The following block is indented for the original async with; increase all lines from browser creation through close by 4 spaces.
+          start=s.index('              browser = await p.chromium.launch')
+          end=s.index('\n          # Deduplicate network')
+          block=s[start:end]
+          block='\n'.join('    '+line for line in block.splitlines())
+          s=s[:start]+block+s[end:]
+          # Dedup/save section must also run inside main after browser close.
+          start2=s.index('          # Deduplicate network')
+          footer=s[start2:]
+          footer='\n'.join('    '+line for line in footer.splitlines())
+          # remove weird false asyncio line and append actual runner outside main
+          footer=footer.replace("              asyncio.run(asyncio.wait_for(asyncio.create_task(asyncio.sleep(0)), timeout=1)) if False else None\n",'')
+          s=s[:start2]+footer+'\n\n          asyncio.run(main())\n'
+          open(p,'w',encoding='utf-8').write(s)
+          PY
+          python /tmp/discover_browser.py
+
+      - name: Commit discovery outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ECO Turkey browser discovery'
+          git config user.email 'actions@users.noreply.github.com'
+          git add eco_temp_turkey_browser
+          git commit -m 'Record ECO Turkey browser discovery' || true
+          git push
