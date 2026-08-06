@@ -15,16 +15,20 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Query portal catalog with session cookies
+
+      - name: Record run
         shell: bash
         run: |
-          set -euo pipefail
-          rm -rf eco_temp_turkey_api
           mkdir -p eco_temp_turkey_api
+          printf '{"run_id":"%s","sha":"%s"}\n' '${{ github.run_id }}' '${{ github.sha }}' > eco_temp_turkey_api/run.json
+
+      - name: Query portal catalog with session cookies
+        shell: bash
+        continue-on-error: true
+        run: |
           python - <<'PY'
-          import requests, json, re, hashlib
+          import requests, json, re, hashlib, traceback
           from pathlib import Path
-          from urllib.parse import urljoin, unquote
 
           OUT=Path('eco_temp_turkey_api')
           base='https://veriportali.tuik.gov.tr'
@@ -39,18 +43,16 @@ jobs:
           s=requests.Session()
           result={'landing':{},'api':{},'candidates':[],'sdmx_attempts':[]}
           try:
-            r=s.get(page_url,headers=headers,timeout=90)
+            r=s.get(page_url,headers=headers,timeout=45)
             result['landing']={'status':r.status_code,'bytes':len(r.content),'url':r.url,'cookies':s.cookies.get_dict()}
             r.raise_for_status()
             h=dict(headers); h.update({'Referer':page_url,'Origin':base,'X-Requested-With':'XMLHttpRequest'})
-            a=s.get(api_url,headers=h,timeout=90)
+            a=s.get(api_url,headers=h,timeout=45)
             result['api']={'status':a.status_code,'bytes':len(a.content),'url':a.url,'content_type':a.headers.get('content-type')}
             a.raise_for_status()
             obj=a.json()
             (OUT/'theme_tree.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding='utf-8')
             data=obj.get('data',obj)
-
-            # Locate Agriculture theme id=13.
             themes=data if isinstance(data,list) else data.get('data',data) if isinstance(data,dict) else []
             ag=None
             for n in themes:
@@ -75,14 +77,12 @@ jobs:
             walk(ag)
             (OUT/'candidates.json').write_text(json.dumps(result['candidates'],ensure_ascii=False,indent=2),encoding='utf-8')
 
-            # Extract all candidate dataflow identifiers and try 2024 data.
             ids=[]
             for c in result['candidates']:
               texts=[c.get('url',''),json.dumps(c.get('node',{}),ensure_ascii=False)]
               for text in texts:
                 for m in re.findall(r'(TR,DF_[A-Za-z0-9_]+,[0-9.]+)',text):
                   if m not in ids: ids.append(m)
-                # databrowser path may encode agency, flow and version separately
                 m=re.search(r'dataflow/([^/]+)/([^/]+)/([^/?#]+)',text)
                 if m:
                   x=','.join(m.groups())
@@ -92,7 +92,7 @@ jobs:
               u=f'https://nsiws.tuik.gov.tr/rest/data/{did}/ALL/?detail=full&dimensionAtObservation=TIME_PERIOD&startPeriod=2024&endPeriod=2024'
               att={'dataflow_id':did,'url':u}
               try:
-                q=s.get(u,headers={'User-Agent':headers['User-Agent'],'Accept':'application/vnd.sdmx.genericdata+xml;version=2.1, application/xml;q=0.9,*/*;q=0.8','Referer':page_url},timeout=120)
+                q=s.get(u,headers={'User-Agent':headers['User-Agent'],'Accept':'application/vnd.sdmx.genericdata+xml;version=2.1, application/xml;q=0.9,*/*;q=0.8','Referer':page_url},timeout=60)
                 att.update({'status':q.status_code,'bytes':len(q.content),'content_type':q.headers.get('content-type')})
                 if q.status_code==200 and q.content:
                   fn=re.sub(r'[^A-Za-z0-9_-]+','_',did)+'_2024.xml'
@@ -100,19 +100,23 @@ jobs:
                   txt=q.content.decode('utf-8','ignore')
                   att['contains_cherry_terms']=bool(re.search(r'kiraz|vişne|visne|cherry',txt,re.I))
                   att['sha256']=hashlib.sha256(q.content).hexdigest()
-              except Exception as e: att['error']=repr(e)
+              except Exception as e:
+                att['error']=repr(e)
               result['sdmx_attempts'].append(att)
           except Exception as e:
             result['fatal_error']=repr(e)
+            result['traceback']=traceback.format_exc()
           (OUT/'status.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(result,ensure_ascii=False,indent=2)[:30000])
           PY
+
       - name: Commit results
+        if: always()
         shell: bash
         run: |
-          set -euo pipefail
           git config user.name 'ECO Turkey portal API'
           git config user.email 'actions@users.noreply.github.com'
           git add eco_temp_turkey_api
           git commit -m 'Record ECO Turkey portal API results' || true
+          git pull --rebase || true
           git push
